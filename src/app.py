@@ -201,6 +201,8 @@ class RAGAssistant:
         # for context in rag_context['documents']:
         #     context_str = context_str + " \n" + context
 
+        print(f"rag context : {context_str}")
+
         response = self.chain.invoke({
             "context":context_str,
             "question":input
