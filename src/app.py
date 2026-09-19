@@ -1,5 +1,5 @@
 import os
-from typing import List
+from typing import List, Any, Dict
 from dotenv import load_dotenv
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
@@ -13,7 +13,9 @@ import pymupdf
 import base64
 from langchain_core.messages import HumanMessage
 from groq import Groq
+from utils import load_yaml, build_prompt
 import time
+import yaml
 
 # Load environment variables
 load_dotenv()
@@ -50,8 +52,8 @@ def load_documents() -> List[str]:
             #extract first the texts
             for page_num, page in enumerate(pdf, start=1):
                 text = page.get_text("text")
-                print(f"--- Page {page_num} ---")
-                print(f"Text content: {text}")
+                # print(f"--- Page {page_num} ---")
+                # print(f"Text content: {text}")
             
                 #doc = Document(
                     #page_content=text,
@@ -60,7 +62,7 @@ def load_documents() -> List[str]:
 
                 doc = {
                         "content": text,
-                        "metadata": {"type": "text", "page": page_num, "source":file_path, "topic": "domestic animals"}
+                        "metadata": {"type": "text", "page": page_num, "source":Path(file_path).name, "topic": "domestic animals"}
                     }
                 
                 results.append(doc)
@@ -83,11 +85,11 @@ def load_documents() -> List[str]:
                                         
                     image_summary_response = llm.invoke(image_summary_prompt, max_tokens=500)
 
-                    print(f"image summary {image_summary_response.content}")
+                    # print(f"image summary {image_summary_response.content}")
                    
                     doc = {
                         "content": f"Image Summary: {image_summary_response.content}",
-                        "metadata": {"type": "image", "page": page_num, "b64_image": b64_image, "source":file_path, "topic": "domestic animals"}
+                        "metadata": {"type": "image", "page": page_num, "b64_image": b64_image, "source":Path(file_path).name, "topic": "domestic animals"}
                     }
                     
                     results.append(doc)    
@@ -125,7 +127,15 @@ class RAGAssistant:
         # HINT: Use ChatPromptTemplate.from_template() with a template string
         # HINT: Your template should include placeholders for {context} and {question}
         # HINT: Design your prompt to effectively use retrieved context to answer questions
-        self.prompt_template = ChatPromptTemplate.from_template("Answer the following question based on the provided context:\n\nContext: {context}\n\nQuestion: {question}")  
+
+        #use prompt config here
+        config_dir = Path("config").resolve()
+        prompt_config_file = os.path.join(config_dir, "prompt_config.yaml")
+        prompt_config = load_yaml(prompt_config_file) 
+        prompt = build_prompt(prompt_config, 'rag_prompt_config')
+
+        print (f"prompt from config: {prompt}") 
+        self.prompt_template = ChatPromptTemplate.from_template(f"{prompt} \n\n Answer the following question based on the provided context:\n\nContext: {{context}}\n\nQuestion: {{question}}")  
 
         # Create the chain
         if self.prompt_template:
@@ -147,10 +157,21 @@ class RAGAssistant:
             )
 
         elif os.getenv("GROQ_API_KEY"):
+
+            # client = Groq(api_key=os.getenv("GROQ_API_KEY"))
+
+            # # Fetch all available models from Groq
+            # models = client.models.list()
+
+            # # Print active model IDs
+            # for model in models.data:
+            #     print(model.id)
+
             model_name = os.getenv("GROQ_MODEL", "llama-3.1-8b-instant")
+
             print(f"Using Groq model: {model_name}")
             return ChatGroq(
-                api_key=os.getenv("GROQ_API_KEY"), model=model_name, temperature=0.0
+                api_key=os.getenv("GROQ_API_KEY"), max_tokens=800, model=model_name, temperature=0.0
             )
 
         elif os.getenv("GOOGLE_API_KEY"):
@@ -201,15 +222,15 @@ class RAGAssistant:
         # for context in rag_context['documents']:
         #     context_str = context_str + " \n" + context
 
-        print(f"rag context : {context_str}")
+        # print(f"rag context : {context_str}")
+        # print(f"end context ================== \n\n\n")
 
         response = self.chain.invoke({
             "context":context_str,
             "question":input
         })
       
-        return response.content
-
+        return response
 
 def main():
     """Main function to demonstrate the RAG assistant."""
@@ -244,5 +265,5 @@ def main():
 
 
 if __name__ == "__main__":
-    #main()
-    load_documents()  # Call the load_documents function to test it
+    main()
+    #load_documents()  # Call the load_documents function to test it

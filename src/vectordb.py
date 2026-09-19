@@ -1,6 +1,6 @@
 import os
 import chromadb
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 # from sentence_transformers import SentenceTransformer
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_core.documents import Document
@@ -34,7 +34,7 @@ class VectorDB:
         # Load embedding model
         print(f"Loading embedding model: {self.embedding_model_name}")
         # self.embedding_model = SentenceTransformer(self.embedding_model_name)
-        self.embedding_model = HuggingFaceEmbeddings(self.embedding_model_name)
+        self.embedding_model = HuggingFaceEmbeddings(model_name=self.embedding_model_name)
 
         # Get or create collection
         # self.collection = self.client.get_or_create_collection(
@@ -45,7 +45,8 @@ class VectorDB:
         self.vector_store = Chroma(
             collection_name="rag_collection",
             embedding_function=self.embedding_model,
-            persist_directory="./chroma_db"
+            persist_directory="./chroma_db",
+            client_settings=chromadb.config.Settings(allow_reset=True)
         )
 
         print(f"Vector database initialized with collection: {self.collection_name}")
@@ -182,3 +183,27 @@ class VectorDB:
             "distances": distances,
             "ids": ids,
         }
+
+    def reset_vector_store(self, collection_name: Optional[str] = None):
+        print("inside reset vector store")
+       
+        try:
+            count = 0
+            if collection_name is not None:
+                print("inside if")
+                self.vector_store._client.delete_collection(collection_name)
+                count = self.vector_store._client.get_collection(collection_name).count()
+            else:
+                print("inside else")
+                self.vector_store._client.reset()
+                count = self.vector_store._collection.count()
+            
+            print(f"{count} docs remaining")    
+
+        except Exception as e:
+            print(f"Error: {str(e)}")
+
+
+if __name__ == "__main__":
+    vector = VectorDB()
+    vector.reset_vector_store()
