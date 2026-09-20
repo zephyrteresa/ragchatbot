@@ -204,6 +204,6 @@ class VectorDB:
             print(f"Error: {str(e)}")
 
 
-if __name__ == "__main__":
-    vector = VectorDB()
-    vector.reset_vector_store()
+# if __name__ == "__main__":
+#     vector = VectorDB()
+#     vector.reset_vector_store()

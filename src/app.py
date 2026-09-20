@@ -13,9 +13,9 @@ import pymupdf
 import base64
 from langchain_core.messages import HumanMessage
 from groq import Groq
-from utils import load_yaml, build_prompt
+from utils import load_yaml, build_prompt, get_logger
 import time
-import yaml
+
 
 # Load environment variables
 load_dotenv()
@@ -52,14 +52,7 @@ def load_documents() -> List[str]:
             #extract first the texts
             for page_num, page in enumerate(pdf, start=1):
                 text = page.get_text("text")
-                # print(f"--- Page {page_num} ---")
-                # print(f"Text content: {text}")
             
-                #doc = Document(
-                    #page_content=text,
-                    #metadata={"type": "text", "page": page_num, "source":file_path, "topic": "domestic animals"}
-                #)
-
                 doc = {
                         "content": text,
                         "metadata": {"type": "text", "page": page_num, "source":Path(file_path).name, "topic": "domestic animals"}
@@ -84,8 +77,6 @@ def load_documents() -> List[str]:
                     ]
                                         
                     image_summary_response = llm.invoke(image_summary_prompt, max_tokens=500)
-
-                    # print(f"image summary {image_summary_response.content}")
                    
                     doc = {
                         "content": f"Image Summary: {image_summary_response.content}",
@@ -140,6 +131,9 @@ class RAGAssistant:
         # Create the chain
         if self.prompt_template:
             self.chain = self.prompt_template | self.llm | StrOutputParser()
+
+        #set the logger
+        self.logger = get_logger("RAG Assistant")   
 
         print("RAG Assistant initialized successfully")
 
@@ -222,14 +216,19 @@ class RAGAssistant:
         # for context in rag_context['documents']:
         #     context_str = context_str + " \n" + context
 
-        # print(f"rag context : {context_str}")
-        # print(f"end context ================== \n\n\n")
-
-        response = self.chain.invoke({
+        prompt_inputs = {
             "context":context_str,
             "question":input
-        })
-      
+        }
+
+        formatted_prompt = self.prompt_template.format(**prompt_inputs)
+        self.logger.info(f"Prompt sent to LLM : {formatted_prompt}")
+             
+        response = self.chain.invoke(prompt_inputs)
+
+        self.logger.info(f"response : {response}")
+        self.logger.info("=====================================================")
+
         return response
 
 def main():

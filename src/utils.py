@@ -1,9 +1,12 @@
 import os
 from typing import Any, Dict
 from pathlib import Path
-
 import yaml
+import logging
 
+LOG_DIR = Path("logs")
+LOG_DIR.mkdir(exist_ok=True)
+LOG_FILE = LOG_DIR / "app.log"
 
 def load_yaml(file_path: str)-> Dict[str, Any]:
    
@@ -39,4 +42,22 @@ def build_prompt(prompt_config: Dict[str, Any], prompt_type: str):
         prompt_str = prompt_str + "\n\n Your goal is the ff: " + goal    
     
     return prompt_str    
-        
+
+def get_logger(log_name: str = __name__):
+
+    try: 
+        logger = logging.getLogger(log_name)
+        logger.setLevel(logging.INFO)
+
+        if not logger.handlers:
+            # Create file handler
+            file_handler = logging.FileHandler(LOG_FILE, mode="a", encoding="utf-8")
+
+            formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s")
+            file_handler.setFormatter(formatter)
+            logger.addHandler(file_handler)
+
+    except Exception as e:
+        print(f"Error setting up logger: {str(e)}")
+
+    return logger
