@@ -5,7 +5,8 @@ from typing import List, Dict, Any, Optional
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_core.documents import Document
 from langchain_huggingface import HuggingFaceEmbeddings
-from langchain_community.vectorstores import Chroma
+#from langchain_community.vectorstores import Chroma
+from langchain_chroma import Chroma
 
 
 class VectorDB:
@@ -144,7 +145,7 @@ class VectorDB:
 
         print("Documents added to vector database")
 
-    def search(self, query: str, n_results: int = 5) -> Dict[str, Any]:
+    def search(self, query: str, n_results: int = 5, n_threshold: float = 0.3) -> Dict[str, Any]:
         """
         Search for similar documents in the vector database.
 
@@ -172,10 +173,16 @@ class VectorDB:
         ids = []
 
         for doc, score in results:
-            documents.append(doc.page_content)
-            metadatas.append(doc.metadata)
-            distances.append(score)
-            ids.append(doc.id)
+
+            print(f"doc id {doc.id}, threshold: {score}")
+            if score < n_threshold:
+                print("score is less than threshold, included")
+                documents.append(doc.page_content)
+                metadatas.append(doc.metadata)
+                distances.append(score)
+                ids.append(doc.id)
+            else:
+                print("score is greater than or equal threshold, exluded")
 
         return {
             "documents": documents,
@@ -204,6 +211,16 @@ class VectorDB:
             print(f"Error: {str(e)}")
 
 
-# if __name__ == "__main__":
-#     vector = VectorDB()
-#     vector.reset_vector_store()
+if __name__ == "__main__":
+    vector = VectorDB()
+    #vector.reset_vector_store()
+
+     # 1. Get total number of stored documents
+    doc_count = vector.vector_store._collection.count()
+    print(f"Total documents in collection: {doc_count}")
+
+    # 2. Inspect the raw stored records (first 3 chunks)
+    if doc_count > 0:
+        raw_data = vector.vector_store._collection.get(limit=3)
+        print("Sample stored documents:", raw_data["documents"])
+        print("Sample metadatas:", raw_data["metadatas"])

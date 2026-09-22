@@ -15,6 +15,8 @@ from langchain_core.messages import HumanMessage
 from groq import Groq
 from utils import load_yaml, build_prompt, get_logger
 import time
+import json
+from llms import get_llm
 
 
 # Load environment variables
@@ -42,9 +44,9 @@ def load_documents() -> List[str]:
     if data_dir.exists(): 
         print(f"Data directory exists: {data_dir}")
 
-        assistant = RAGAssistant()
-        llm = assistant._initialize_llm()
+        llm = get_llm()
 
+        #get all pdf docs
         for file_path in data_dir.glob('*.pdf'):
             print(f"file path {file_path}")
             pdf = pymupdf.open(file_path)
@@ -103,7 +105,7 @@ class RAGAssistant:
     def __init__(self):
         """Initialize the RAG assistant."""
         # Initialize LLM - check for available API keys in order of preference
-        self.llm = self._initialize_llm()
+        self.llm = get_llm()
         if not self.llm:
             raise ValueError(
                 "No valid API key found. Please set one of: "
@@ -125,8 +127,7 @@ class RAGAssistant:
         prompt_config = load_yaml(prompt_config_file) 
         prompt = build_prompt(prompt_config, 'rag_prompt_config')
 
-        print (f"prompt from config: {prompt}") 
-        self.prompt_template = ChatPromptTemplate.from_template(f"{prompt} \n\n Answer the following question based on the provided context:\n\nContext: {{context}}\n\nQuestion: {{question}}")  
+        self.prompt_template = ChatPromptTemplate.from_template(f"{prompt} \n\n Answer the following question based on the provided context:\n\n\nContext: {{context}}\n\nQuestion: {{question}}")  
 
         # Create the chain
         if self.prompt_template:
@@ -136,51 +137,6 @@ class RAGAssistant:
         self.logger = get_logger("RAG Assistant")   
 
         print("RAG Assistant initialized successfully")
-
-    def _initialize_llm(self):
-        """
-        Initialize the LLM by checking for available API keys.
-        Tries OpenAI, Groq, and Google Gemini in that order.
-        """
-        # Check for OpenAI API key
-        if os.getenv("OPENAI_API_KEY"):
-            model_name = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
-            print(f"Using OpenAI model: {model_name}")
-            return ChatOpenAI(
-                api_key=os.getenv("OPENAI_API_KEY"), model=model_name, temperature=0.0
-            )
-
-        elif os.getenv("GROQ_API_KEY"):
-
-            # client = Groq(api_key=os.getenv("GROQ_API_KEY"))
-
-            # # Fetch all available models from Groq
-            # models = client.models.list()
-
-            # # Print active model IDs
-            # for model in models.data:
-            #     print(model.id)
-
-            model_name = os.getenv("GROQ_MODEL", "llama-3.1-8b-instant")
-
-            print(f"Using Groq model: {model_name}")
-            return ChatGroq(
-                api_key=os.getenv("GROQ_API_KEY"), max_tokens=800, model=model_name, temperature=0.0
-            )
-
-        elif os.getenv("GOOGLE_API_KEY"):
-            model_name = os.getenv("GOOGLE_MODEL", "gemini-2.0-flash")
-            print(f"Using Google Gemini model: {model_name}")
-            return ChatGoogleGenerativeAI(
-                google_api_key=os.getenv("GOOGLE_API_KEY"),
-                model=model_name,
-                temperature=0.0,
-            )
-
-        else:
-            raise ValueError(
-                "No valid API key found. Please set one of: OPENAI_API_KEY, GROQ_API_KEY, or GOOGLE_API_KEY in your .env file"
-            )
 
     def add_documents(self, documents: List) -> None:
         """
@@ -211,6 +167,12 @@ class RAGAssistant:
 
         # get context by querying the vector store
         rag_context = self.vector_db.search(input, n_results)
+
+        self.logger.info(f"Returned data from search function: \n{json.dumps(rag_context, indent=2)}" )
+
+        if not rag_context['documents']:
+            return "No relevant context found"
+        
         context_str = "\n\n".join(rag_context['documents'])
 
         # for context in rag_context['documents']:
@@ -227,7 +189,7 @@ class RAGAssistant:
         response = self.chain.invoke(prompt_inputs)
 
         self.logger.info(f"response : {response}")
-        self.logger.info("=====================================================")
+        self.logger.info("\n\n ==================================================== \n\n")
 
         return response
 
