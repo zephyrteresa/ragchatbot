@@ -7,7 +7,8 @@ from langchain_core.documents import Document
 from langchain_huggingface import HuggingFaceEmbeddings
 #from langchain_community.vectorstores import Chroma
 from langchain_chroma import Chroma
-
+from utils import load_yaml
+from pathlib import Path
 
 class VectorDB:
     """
@@ -52,40 +53,22 @@ class VectorDB:
 
         print(f"Vector database initialized with collection: {self.collection_name}")
 
-    def chunk_text(self, docs: List[Dict[str, Any]], chunk_size: int = 500) -> List[Dict[str, Any]]:
+    def chunk_text(self, docs: List[Dict[str, Any]], chunk_size: int = 500) -> List[Document]:
         """
-        Simple text chunking by splitting on spaces and grouping into chunks.
+        Split text documents into chunks using RecursiveCharacterTextSplitter.
 
         Args:
-            docs: list of doc dictionaries with content and metadata keys
+            docs: list of dicts
             chunk_size: Approximate number of characters per chunk
 
         Returns:
             List of text chunks
         """
-        # TODO: Implement text chunking logic
-        # You have several options for chunking text - choose one or experiment with multiple:
-        #
-        # OPTION 1: Simple word-based splitting
-        #   - Split text by spaces and group words into chunks of ~chunk_size characters
-        #   - Keep track of current chunk length and start new chunks when needed
-        #
-        # OPTION 2: Use LangChain's RecursiveCharacterTextSplitter
-        #   - from langchain_text_splitters import RecursiveCharacterTextSplitter
-        #   - Automatically handles sentence boundaries and preserves context better
-        #
-        # OPTION 3: Semantic splitting (advanced)
-        #   - Split by sentences using nltk or spacy
-        #   - Group semantically related sentences together
-        #   - Consider paragraph boundaries and document structure
-        #
-        # Feel free to try different approaches and see what works best!
 
-        
-        # Your implementation here
+        if not docs:
+            return []
 
-        chunks = []
-
+        #convert dictionary objects to Document objects
         doc_objects = [
             Document(
                     page_content=d["content"],
@@ -96,21 +79,16 @@ class VectorDB:
 
         splitter = RecursiveCharacterTextSplitter(
                     chunk_size=chunk_size,
-                    chunk_overlap=20
+                    chunk_overlap=50
                 )
         
-        # Split Document objects
+        # Split Document objects, handle all documents in one call
         chunked_docs = splitter.split_documents(doc_objects)
 
         for id, chunk in enumerate(chunked_docs, start=1):
             chunk.metadata["chunk_id"] = id
-            # chunks.append({
-            #     'content': chunk.page_content,                
-            #     'metadata': chunk.metadata
-            # })
-
+           
         return chunked_docs    
-
 
     def add_documents(self, documents: List) -> None:
         """
@@ -134,7 +112,8 @@ class VectorDB:
         chunked_docs = self.chunk_text(documents)
 
         #set the unique ids
-        existing_count = len(self.vector_store.get()["ids"]) 
+        #existing_count = len(self.vector_store.get()["ids"]) 
+        existing_count = self.vector_store._collection.count()
         ids = list(range(existing_count, existing_count + len(chunked_docs)))
         ids = [f"document_{id}" for id in ids]
         
@@ -145,7 +124,7 @@ class VectorDB:
 
         print("Documents added to vector database")
 
-    def search(self, query: str, n_results: int = 5, n_threshold: float = 0.3) -> Dict[str, Any]:
+    def search(self, query: str, n_results: int = None, n_threshold: float = None) -> Dict[str, Any]:
         """
         Search for similar documents in the vector database.
 
@@ -164,6 +143,14 @@ class VectorDB:
         # HINT: Handle the case where results might be empty
 
         # Your implementation here 
+        default_config = load_yaml(Path("config") / "config.yaml")
+        if n_results is None:
+            n_results = default_config["n_results"]
+
+        if n_threshold is None:
+            n_threshold = default_config["n_threshold"]    
+
+        print(f"n_results: {n_results} , n_threshold: {n_threshold}")    
 
         results = self.vector_store.similarity_search_with_score(query, n_results)
 
@@ -175,7 +162,7 @@ class VectorDB:
         for doc, score in results:
 
             print(f"doc id {doc.id}, threshold: {score}")
-            if score < n_threshold:
+            if score <= n_threshold:
                 print("score is less than threshold, included")
                 documents.append(doc.page_content)
                 metadatas.append(doc.metadata)

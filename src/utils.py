@@ -8,6 +8,7 @@ LOG_DIR = Path("logs")
 LOG_DIR.mkdir(exist_ok=True)
 LOG_FILE = LOG_DIR / "app.log"
 
+
 def load_yaml(file_path: str)-> Dict[str, Any]:
    
     if not Path(file_path).exists():
@@ -61,3 +62,8 @@ def get_logger(log_name: str = __name__):
         print(f"Error setting up logger: {str(e)}")
 
     return logger
+
+def get_config_value(key:str):
+    default_config = load_yaml(Path("config") / "config.yaml")
+
+    return default_config.get(key)
