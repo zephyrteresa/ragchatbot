@@ -1,3 +1,3 @@
 n_results: 5
-n_threshold: 0.7
-max_recent_messages: 7
+n_threshold: 0.9
+max_recent_messages: 1

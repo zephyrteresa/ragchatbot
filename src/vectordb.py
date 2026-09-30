@@ -1,14 +1,14 @@
 import os
 import chromadb
 from typing import List, Dict, Any, Optional
-# from sentence_transformers import SentenceTransformer
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_core.documents import Document
 from langchain_huggingface import HuggingFaceEmbeddings
-#from langchain_community.vectorstores import Chroma
 from langchain_chroma import Chroma
 from utils import load_yaml
 from pathlib import Path
+import hashlib
+import json
 
 class VectorDB:
     """
@@ -30,19 +30,9 @@ class VectorDB:
             "EMBEDDING_MODEL", "sentence-transformers/all-MiniLM-L6-v2"
         )
 
-        # Initialize ChromaDB client
-        # self.client = chromadb.PersistentClient(path="./chroma_db")
-
         # Load embedding model
         print(f"Loading embedding model: {self.embedding_model_name}")
-        # self.embedding_model = SentenceTransformer(self.embedding_model_name)
         self.embedding_model = HuggingFaceEmbeddings(model_name=self.embedding_model_name)
-
-        # Get or create collection
-        # self.collection = self.client.get_or_create_collection(
-        #     name=self.collection_name,
-        #     metadata={"description": "RAG document collection"},
-        # )
 
         self.vector_store = Chroma(
             collection_name="rag_collection",
@@ -85,8 +75,13 @@ class VectorDB:
         # Split Document objects, handle all documents in one call
         chunked_docs = splitter.split_documents(doc_objects)
 
-        for id, chunk in enumerate(chunked_docs, start=1):
-            chunk.metadata["chunk_id"] = id
+        for chunk in chunked_docs:
+            content_hash = hashlib.md5(
+                chunk.page_content.encode("utf-8")
+            ).hexdigest()
+             
+            #chunk.metadata["chunk_id"] = id
+            chunk.metadata["chunk_id"] = f"{chunk.metadata['source']}_page_{chunk.metadata['page']}_chunk_{content_hash}"
            
         return chunked_docs    
 
@@ -107,22 +102,32 @@ class VectorDB:
         # HINT: Print progress messages to inform the user
 
         print(f"Processing {len(documents)} documents...")
-        # Your implementation here
-
+    
         chunked_docs = self.chunk_text(documents)
-
-        #set the unique ids
-        #existing_count = len(self.vector_store.get()["ids"]) 
-        existing_count = self.vector_store._collection.count()
-        ids = list(range(existing_count, existing_count + len(chunked_docs)))
-        ids = [f"document_{id}" for id in ids]
         
-        self.vector_store.add_documents(
-            documents=chunked_docs,
+        # get the chunked ids here and use them as unique ids
+        ids = [chunk.metadata["chunk_id"] for chunk in chunked_docs]
+        print(f"ids: \n{json.dumps(ids, indent=2)}" )
+
+        # Get the actual text content
+        texts = [chunk.page_content for chunk in chunked_docs]
+
+        # Get the metadata
+        metadatas = [chunk.metadata for chunk in chunked_docs]
+
+        #embed docs
+        embeddings = self.embedding_model.embed_documents(texts)
+
+        print(f"embeddings: \n{json.dumps(embeddings, indent=2)}")
+
+        self.vector_store._collection.upsert(
+            documents=texts,
+            embeddings=embeddings,
+            metadatas=metadatas,
             ids=ids
         )
 
-        print("Documents added to vector database")
+        print(f"Documents added to vector database, total documents in vector DB:  {self.vector_store._collection.count()}")
 
     def search(self, query: str, n_results: int = None, n_threshold: float = None) -> Dict[str, Any]:
         """
@@ -131,15 +136,12 @@ class VectorDB:
         Args:
             query: Search query
             n_results: Number of results to return
+            n_threshold: The distance threshold, we use cosine distance here
 
         Returns:
             Dictionary containing search results with keys: 'documents', 'metadatas', 'distances', 'ids'
         """
-        # TODO: Implement similarity search logic
-        # HINT: Use self.embedding_model.encode([query]) to create query embedding
-        # HINT: Convert the embedding to appropriate format for your vector database
-        # HINT: Use your vector database's search/query method with the query embedding and n_results
-        # HINT: Return a dictionary with keys: 'documents', 'metadatas', 'distances', 'ids'
+       
         # HINT: Handle the case where results might be empty
 
         # Your implementation here 
@@ -152,15 +154,14 @@ class VectorDB:
 
         print(f"n_results: {n_results} , n_threshold: {n_threshold}")    
 
-        results = self.vector_store.similarity_search_with_score(query, n_results)
+        results = self.vector_store.similarity_search_with_score(query, n_results) #no need to embed query here
 
         documents = []
         metadatas = []
         distances = []
         ids = []
-
+        
         for doc, score in results:
-
             print(f"doc id {doc.id}, threshold: {score}")
             if score <= n_threshold:
                 print("score is less than threshold, included")
@@ -170,7 +171,7 @@ class VectorDB:
                 ids.append(doc.id)
             else:
                 print("score is greater than or equal threshold, exluded")
-
+      
         return {
             "documents": documents,
             "metadatas": metadatas,
@@ -200,14 +201,14 @@ class VectorDB:
 
 if __name__ == "__main__":
     vector = VectorDB()
-    #vector.reset_vector_store()
+    vector.reset_vector_store()
 
-     # 1. Get total number of stored documents
-    doc_count = vector.vector_store._collection.count()
-    print(f"Total documents in collection: {doc_count}")
+    #  1. Get total number of stored documents
+    # doc_count = vector.vector_store._collection.count()
+    # print(f"Total documents in collection: {doc_count}")
 
-    # 2. Inspect the raw stored records (first 3 chunks)
-    if doc_count > 0:
-        raw_data = vector.vector_store._collection.get(limit=3)
-        print("Sample stored documents:", raw_data["documents"])
-        print("Sample metadatas:", raw_data["metadatas"])
+    # # 2. Inspect the raw stored records (first 3 chunks)
+    # if doc_count > 0:
+    #     raw_data = vector.vector_store._collection.get(limit=20)
+    #     print("Sample stored documents:", raw_data["documents"])
+    #     print("Sample metadatas:", raw_data["metadatas"])

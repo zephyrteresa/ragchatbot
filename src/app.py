@@ -11,7 +11,7 @@ from pathlib import Path
 from langchain_core.documents import Document
 import pymupdf
 import base64
-from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.messages import HumanMessage, AIMessage
 from groq import Groq
 from utils import load_yaml, build_prompt, get_logger, get_config_value
 import time
@@ -176,53 +176,7 @@ class RAGAssistant:
             documents: List of documents
         """
         self.vector_db.add_documents(documents)
-
-    # def invoke(self, input: str, n_results: int = None, n_threshold: int = None) -> str:
-    #     """
-    #     Query the RAG assistant.
-
-    #     Args:
-    #         input: User's input
-    #         n_results: Number of relevant chunks to retrieve
-
-    #     Returns:
-    #         LLM answer
-    #     """
-        
-    #     # TODO: Implement the RAG query pipeline
-    #     # HINT: Use self.vector_db.search() to retrieve relevant context chunks
-    #     # HINT: Combine the retrieved document chunks into a single context string
-    #     # HINT: Use self.chain.invoke() with context and question to generate the response
-    #     # HINT: Return a string answer from the LLM
-
-    #     # get context by querying the vector store
-    #     rag_context = self.vector_db.search(input, n_results, n_threshold)
-
-    #     self.logger.info(f"Returned data from search function: \n{json.dumps(rag_context, indent=2)}" )
-
-    #     if not rag_context['documents']:
-    #         return "No relevant context found"
-        
-    #     context_str = "\n\n".join(rag_context['documents'])
-
-    #     # for context in rag_context['documents']:
-    #     #     context_str = context_str + " \n" + context
-
-    #     prompt_inputs = {
-    #         "context":context_str,
-    #         "question":input
-    #     }
-
-    #     formatted_prompt = self.prompt_template.format(**prompt_inputs)
-    #     self.logger.info(f"Prompt sent to LLM : {formatted_prompt}")
-             
-    #     response = self.chain.invoke(prompt_inputs)
-
-    #     self.logger.info(f"response : {response}")
-    #     self.logger.info("\n\n ==================================================== \n\n")
-
-    #     return response
-
+  
     def invoke(self, input: str, n_results: int = None, n_threshold: int = None) -> str:
         """
         Query the RAG assistant.
@@ -230,6 +184,7 @@ class RAGAssistant:
         Args:
             input: User's input
             n_results: Number of relevant chunks to retrieve
+            n_threshold: The distance threshold
 
         Returns:
             LLM answer
@@ -238,16 +193,22 @@ class RAGAssistant:
         # get context by querying the vector store
         rag_context = self.vector_db.search(input, n_results, n_threshold)
 
-        self.logger.info(f"Returned data from search function: \n{json.dumps(rag_context, indent=2)}" )
+        self.logger.info(f"Rag Context, returned data from search function: \n{json.dumps(rag_context, indent=2)}" )
 
         if not rag_context['documents']:
             return "No relevant context found"
             
         context_str = "\n\n".join(rag_context['documents'])
+
+        summary = self.summarize_old_messages();
+        recent_messages = self.conversation_history[-get_config_value("max_recent_messages"):]#get the [max_recent_messages] recent messages
+
+        print(f"summary: {summary}")
+        print(f"recent messages: {recent_messages}")
          
         prompt_inputs = {
-            "conversation_summary": self.summarize_old_messages(),
-            "recent_messages":self.conversation_history[-get_config_value("max_recent_messages"):], #get the [max_recent_messages] recent messages
+            "conversation_summary": summary,
+            "recent_messages":recent_messages, 
             "context":context_str,
             "question":input
         }
@@ -266,6 +227,7 @@ class RAGAssistant:
         max_recent_msg = get_config_value("max_recent_messages")
 
         if (len(self.conversation_history) <= max_recent_msg):
+            print(f"history length is <= {max_recent_msg}, no summary")
             return ""
         
         old_messages = self.conversation_history[:-max_recent_msg]
@@ -293,7 +255,7 @@ class RAGAssistant:
         # update the summary
         self.conversation_summary = summary
 
-        #the history will now contained the unsummarized messages
+        #the history will now contain the unsummarized messages
         self.conversation_history = self.conversation_history[-max_recent_msg:]
 
         return summary
@@ -315,27 +277,22 @@ def main():
         assistant.add_documents(sample_docs)
 
         done = False
-        conversation_history = []
+        assistant.conversation_history = []
 
         while not done:
             question = input("Enter a question or 'quit' to exit: ")
             if question.lower() == "quit":
                 done = True
             else:
-                conversation_history.append(HumanMessage(content=question))
-                summary = assistant.summarize_old_messages(conversation_history)
-                conversation_history.append(SystemMessage(content=f"Summary of older conversation: {summary}"))
-
+                assistant.conversation_history.append(HumanMessage(content=question))
                 result = assistant.invoke(question)
+                assistant.conversation_history.append(AIMessage(content=result))
                 print(result)
 
     except Exception as e:
         print(f"Error running RAG assistant: {e}")
         print("Make sure you have set up your .env file with at least one API key:")
-        print("- OPENAI_API_KEY (OpenAI GPT models)")
-        print("- GROQ_API_KEY (Groq Llama models)")
-        print("- GOOGLE_API_KEY (Google Gemini models)")
-
+       
 
 if __name__ == "__main__":
     main()
