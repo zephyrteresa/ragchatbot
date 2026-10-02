@@ -5,14 +5,13 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_core.documents import Document
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_chroma import Chroma
-from utils import load_yaml
-from pathlib import Path
+from utils import get_config_value
 import hashlib
 import json
 
 class VectorDB:
     """
-    A simple vector database wrapper using ChromaDB with HuggingFace embeddings.
+    A simple vector database wrapper using Chroma with HuggingFace embeddings.
     """
 
     def __init__(self, collection_name: str = None, embedding_model: str = None):
@@ -41,7 +40,7 @@ class VectorDB:
             client_settings=chromadb.config.Settings(allow_reset=True)
         )
 
-        print(f"Vector database initialized with collection: {self.collection_name}")
+        print(f"Vector database initialized with collection name: {self.collection_name}")
 
     def chunk_text(self, docs: List[Dict[str, Any]], chunk_size: int = 500) -> List[Document]:
         """
@@ -52,7 +51,7 @@ class VectorDB:
             chunk_size: Approximate number of characters per chunk
 
         Returns:
-            List of text chunks
+            List of Documents
         """
 
         if not docs:
@@ -85,23 +84,15 @@ class VectorDB:
            
         return chunked_docs    
 
-    def add_documents(self, documents: List) -> None:
+    def add_documents(self, documents: List[Dict[str, Any]]) -> None:
         """
         Add documents to the vector database.
 
         Args:
             documents: List of documents
         """
-        # TODO: Implement document ingestion logic
-        # HINT: Loop through each document in the documents list
-        # HINT: Extract 'content' and 'metadata' from each document dict
-        # HINT: Use self.chunk_text() to split each document into chunks
-        # HINT: Create unique IDs for each chunk (e.g., "doc_0_chunk_0")
-        # HINT: Use self.embedding_model.encode() to create embeddings for all chunks
-        # HINT: Store the embeddings, documents, metadata, and IDs in your vector database
-        # HINT: Print progress messages to inform the user
 
-        print(f"Processing {len(documents)} documents...")
+        print(f"Chunking documents...")
     
         chunked_docs = self.chunk_text(documents)
         
@@ -115,11 +106,12 @@ class VectorDB:
         # Get the metadata
         metadatas = [chunk.metadata for chunk in chunked_docs]
 
+        print(f"Embedding documents...")
+
         #embed docs
         embeddings = self.embedding_model.embed_documents(texts)
 
-        print(f"embeddings: \n{json.dumps(embeddings, indent=2)}")
-
+        #we use upsert to avoid duplicates when we process again the same document
         self.vector_store._collection.upsert(
             documents=texts,
             embeddings=embeddings,
@@ -141,18 +133,12 @@ class VectorDB:
         Returns:
             Dictionary containing search results with keys: 'documents', 'metadatas', 'distances', 'ids'
         """
-       
-        # HINT: Handle the case where results might be empty
-
-        # Your implementation here 
-        default_config = load_yaml(Path("config") / "config.yaml")
+    
         if n_results is None:
-            n_results = default_config["n_results"]
+            n_results = get_config_value("n_results")
 
         if n_threshold is None:
-            n_threshold = default_config["n_threshold"]    
-
-        print(f"n_results: {n_results} , n_threshold: {n_threshold}")    
+            n_threshold = get_config_value("n_threshold")      
 
         results = self.vector_store.similarity_search_with_score(query, n_results) #no need to embed query here
 
@@ -164,13 +150,13 @@ class VectorDB:
         for doc, score in results:
             print(f"doc id {doc.id}, threshold: {score}")
             if score <= n_threshold:
-                print("score is less than threshold, included")
+                print("score is less than or equal threshold, included")
                 documents.append(doc.page_content)
                 metadatas.append(doc.metadata)
                 distances.append(score)
                 ids.append(doc.id)
             else:
-                print("score is greater than or equal threshold, exluded")
+                print("score is greater than threshold, excluded")
       
         return {
             "documents": documents,
@@ -203,12 +189,17 @@ if __name__ == "__main__":
     vector = VectorDB()
     vector.reset_vector_store()
 
-    #  1. Get total number of stored documents
-    # doc_count = vector.vector_store._collection.count()
-    # print(f"Total documents in collection: {doc_count}")
+    try:
 
-    # # 2. Inspect the raw stored records (first 3 chunks)
-    # if doc_count > 0:
-    #     raw_data = vector.vector_store._collection.get(limit=20)
-    #     print("Sample stored documents:", raw_data["documents"])
-    #     print("Sample metadatas:", raw_data["metadatas"])
+        #  1. Get total number of stored documents
+        doc_count = vector.vector_store._collection.count()
+        print(f"Total documents in collection: {doc_count}")
+
+        # 2. Inspect the raw stored records (first 3 chunks)
+        if doc_count > 0:
+            raw_data = vector.vector_store._collection.get(limit=20)
+            print("Sample stored documents:", raw_data["documents"])
+            print("Sample metadatas:", raw_data["metadatas"])
+
+    except Exception as e:
+            print(f"Error: {str(e)}")

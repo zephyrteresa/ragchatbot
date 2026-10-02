@@ -17,13 +17,14 @@ from utils import load_yaml, build_prompt, get_logger, get_config_value
 import time
 import json
 from llms import get_llm
+from langchain_core.load import dumps
 
 
 # Load environment variables
 load_dotenv()
 
 
-def load_documents() -> List[str]:
+def load_documents() -> List[Dict[str, Any]]:
     """
     Load documents for demonstration.
 
@@ -32,30 +33,23 @@ def load_documents() -> List[str]:
     """
 
     results = []
-    # TODO: Implement document loading
-    # HINT: Read the documents from the data directory
-    # HINT: Return a list of documents
-    # HINT: Your implementation depends on the type of documents you are using (.txt, .pdf, etc.)
-
-    # Your implementation here
+  
     data_dir = Path("data").resolve()
     print(f"Loading documents from: {data_dir}")
 
     if data_dir.exists(): 
-        print(f"Data directory exists: {data_dir}")
-
         llm = get_llm()
 
         #get all pdf docs
         for file_path in data_dir.glob('*.pdf'):
-            print(f"file path {file_path}")
             pdf = pymupdf.open(file_path)
             seen_xrefs = set()
 
             #extract first the texts
             for page_num, page in enumerate(pdf, start=1):
+                print(f"Processing page {page_num}...")
                 text = page.get_text("text")
-            
+
                 doc = {
                         "content": text,
                         "metadata": {"type": "text", "page": page_num, "source":Path(file_path).name, "topic": "domestic animals"}
@@ -70,6 +64,8 @@ def load_documents() -> List[str]:
                     # Skip processing this image because it was already summarized on an earlier page
                     if xref in seen_xrefs:
                         continue
+
+                    print(f"Loading images of page {page_num}...")
                         
                     seen_xrefs.add(xref)
 
@@ -91,8 +87,6 @@ def load_documents() -> List[str]:
                     doc = {
                         "content": f"Image Summary: {image_summary_response.content}",
                         "metadata": {"type": "image", "page": page_num, "xref": xref, "source":Path(file_path).name, "topic": "domestic animals"}
-
-                        # "metadata": {"type": "image", "page": page_num, "b64_image": b64_image, "source":Path(file_path).name, "topic": "domestic animals"}
                     }
                     
                     results.append(doc)    
@@ -124,34 +118,27 @@ class RAGAssistant:
 
         # Initialize vector database
         self.vector_db = VectorDB()
-
-        # Create RAG prompt template
-        # TODO: Implement your RAG prompt template
-        # HINT: Use ChatPromptTemplate.from_template() with a template string
-        # HINT: Your template should include placeholders for {context} and {question}
-        # HINT: Design your prompt to effectively use retrieved context to answer questions
-
+    
         #use prompt config here
         config_dir = Path("config").resolve()
         prompt_config_file = os.path.join(config_dir, "prompt_config.yaml")
         prompt_config = load_yaml(prompt_config_file) 
         prompt = build_prompt(prompt_config, 'rag_prompt_config')
 
-        # self.prompt_template = ChatPromptTemplate.from_template(f"{prompt} \n\n Answer the following question based on the provided context:\n\n\nContext: {{context}}\n\nQuestion: {{question}}")  
-
         self.prompt_template = ChatPromptTemplate.from_messages([
                     ("system", prompt),
-                    ("human", "Summary of earlier conversation:\n{conversation_summary}"),
+                    ("system", "Summary of earlier conversation:\n{conversation_summary}"),
                     MessagesPlaceholder("recent_messages"),
                     ("human", """
 
-                Answer the following question based on the provided context:
+                Answer the user's query based on the provided context:
 
                 Context:
-                {context}
+                    {context}
 
-                Question:
-                {question}
+                Question: 
+                    {question}
+
                 """)
                 ])
         
@@ -193,16 +180,15 @@ class RAGAssistant:
         # get context by querying the vector store
         rag_context = self.vector_db.search(input, n_results, n_threshold)
 
-        self.logger.info(f"Rag Context, returned data from search function: \n{json.dumps(rag_context, indent=2)}" )
-
         if not rag_context['documents']:
-            return "No relevant context found"
-            
-        context_str = "\n\n".join(rag_context['documents'])
+            context_str = "No relevant context found"
+        else:            
+            context_str = "\n\n".join(rag_context['documents'])
 
         summary = self.summarize_old_messages();
-        recent_messages = self.conversation_history[-get_config_value("max_recent_messages"):]#get the [max_recent_messages] recent messages
-
+        
+        recent_messages = self.conversation_history[:-1][-get_config_value("max_recent_messages"):]#get the [max_recent_messages] recent messages
+       
         print(f"summary: {summary}")
         print(f"recent messages: {recent_messages}")
          
@@ -213,12 +199,13 @@ class RAGAssistant:
             "question":input
         }
 
-        formatted_prompt = self.prompt_template.format(**prompt_inputs)
-        self.logger.info(f"Prompt sent to LLM : {formatted_prompt}")
+        # log the prompt sent to LLM
+        json_prompt = dumps(self.prompt_template.format_prompt(**prompt_inputs), pretty=True)
+        self.logger.info(f"Prompt sent to LLM:\n{json_prompt}")
                 
         response = self.chain.invoke(prompt_inputs)
 
-        self.logger.info(f"response : {response}")
+        self.logger.info(f"Response: {response}")
         self.logger.info("\n\n ==================================================== \n\n")
     
         return response
@@ -228,7 +215,7 @@ class RAGAssistant:
 
         if (len(self.conversation_history) <= max_recent_msg):
             print(f"history length is <= {max_recent_msg}, no summary")
-            return ""
+            return "Not available"
         
         old_messages = self.conversation_history[:-max_recent_msg]
 
@@ -273,7 +260,7 @@ def main():
         print("\nLoading documents...")
         sample_docs = load_documents()
         print(f"Loaded {len(sample_docs)} sample documents")
-
+        
         assistant.add_documents(sample_docs)
 
         done = False
