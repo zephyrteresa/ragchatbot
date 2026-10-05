@@ -4,18 +4,12 @@ from dotenv import load_dotenv
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.output_parsers import StrOutputParser
 from vectordb import VectorDB
-from langchain_openai import ChatOpenAI
-from langchain_groq import ChatGroq
-from langchain_google_genai import ChatGoogleGenerativeAI
 from pathlib import Path
-from langchain_core.documents import Document
 import pymupdf
 import base64
 from langchain_core.messages import HumanMessage, AIMessage
-from groq import Groq
-from utils import load_yaml, build_prompt, get_logger, get_config_value
+from utils import get_logger, get_config_value, get_prompt
 import time
-import json
 from llms import get_llm
 from langchain_core.load import dumps
 
@@ -38,11 +32,18 @@ def load_documents() -> List[Dict[str, Any]]:
     print(f"Loading documents from: {data_dir}")
 
     if data_dir.exists(): 
-        llm = get_llm()
+        llm = get_llm(os.getenv("GROQ_VISION_MODEL"))
 
         #get all pdf docs
-        for file_path in data_dir.glob('*.pdf'):
+        all_pdfs = list(data_dir.glob("*.pdf"))
+       
+        if not all_pdfs:
+            print("No pdf found")
+
+        for file_path in all_pdfs:
+            print(f"file path {file_path}")
             pdf = pymupdf.open(file_path)
+           
             seen_xrefs = set()
 
             #extract first the texts
@@ -52,47 +53,57 @@ def load_documents() -> List[Dict[str, Any]]:
 
                 doc = {
                         "content": text,
-                        "metadata": {"type": "text", "page": page_num, "source":Path(file_path).name, "topic": "domestic animals"}
+                        "metadata": {"type": "text", "page": page_num, "source":Path(file_path).name}
                     }
                 
                 results.append(doc)
 
                 #extract the images in a page and ask the model to give the description for each image
                 for img_index, img in enumerate(page.get_images(), start=1):
-                    xref = img[0]
-
-                    # Skip processing this image because it was already summarized on an earlier page
-                    if xref in seen_xrefs:
-                        continue
-
-                    print(f"Loading images of page {page_num}...")
+                    try:
+                        xref = img[0]
+                        width = img[2]
+                        height = img[3]
+    
+                        # Skip processing this image because it was already summarized on an earlier page
+                        if xref in seen_xrefs or width < 150 or height < 150:
+                            # Ignore tiny graphics, icons, or decorative elements
+                            print("width is less than 150 or height is < 150 or image is already added, exclude")
+                            continue
                         
-                    seen_xrefs.add(xref)
-
-                    base_image = pdf.extract_image(xref)
-                    image_ext = base_image["ext"]
-                    image_bytes = base_image["image"]
-                    b64_image = base64.b64encode(image_bytes).decode("utf-8")
-
-                    image_summary_prompt = [
-                        HumanMessage(
-                        content = [
-                            {'type':'text', "text": "Describe the image"},
-                            {'type':'image_url', "image_url": {"url": f"data:image/{image_ext};base64,{b64_image}"}},
-                        ])
-                    ]
-                                        
-                    image_summary_response = llm.invoke(image_summary_prompt, max_tokens=500)
-                   
-                    doc = {
-                        "content": f"Image Summary: {image_summary_response.content}",
-                        "metadata": {"type": "image", "page": page_num, "xref": xref, "source":Path(file_path).name, "topic": "domestic animals"}
-                    }
+                        print(f"Loading image of page {page_num}...")
+                            
+                        seen_xrefs.add(xref)
+    
+                        base_image = pdf.extract_image(xref)
+                        image_ext = base_image["ext"]
+                        image_bytes = base_image["image"]
+                        b64_image = base64.b64encode(image_bytes).decode("utf-8")
+    
+                        image_summary_prompt = [
+                            HumanMessage(
+                            content = [
+                                {'type':'text', "text": "Describe the image"},
+                                {'type':'image_url', "image_url": {"url": f"data:image/{image_ext};base64,{b64_image}"}},
+                            ])
+                        ]
+                                            
+                        image_summary_response = llm.invoke(image_summary_prompt, max_tokens=500)
+                        
+                        doc = {
+                            "content": f"Image Summary: {image_summary_response.content}",
+                            "metadata": {"type": "image", "page": page_num, "xref": xref, "source":Path(file_path).name}
+                        }
+                        
+                        results.append(doc)    
+                                    
+                        # Pause for .5 second between image requests to respect rate limits
+                        time.sleep(0.5)           
+                    except Exception as e:
+                        print(f"API Error or Timeout on page image: {e}")
+                        return None  # Return fallback instead of locking up the worker
+                         
                     
-                    results.append(doc)    
-                             
-                    # Pause for 2 seconds between image requests to respect rate limits
-                    time.sleep(2)           
 
     else:
         print(f"Data directory does not exist: {data_dir}")            
@@ -109,7 +120,7 @@ class RAGAssistant:
     def __init__(self):
         """Initialize the RAG assistant."""
         # Initialize LLM - check for available API keys in order of preference
-        self.llm = get_llm()
+        self.llm = get_llm(os.getenv("GROQ_MODEL"))
         if not self.llm:
             raise ValueError(
                 "No valid API key found. Please set one of: "
@@ -118,15 +129,11 @@ class RAGAssistant:
 
         # Initialize vector database
         self.vector_db = VectorDB()
-    
-        #use prompt config here
-        config_dir = Path("config").resolve()
-        prompt_config_file = os.path.join(config_dir, "prompt_config.yaml")
-        prompt_config = load_yaml(prompt_config_file) 
-        prompt = build_prompt(prompt_config, 'rag_prompt_config')
 
+        # set the prompt template, we include here the summary of old conversations as well as the recent messages
+        # to give the model the complete context
         self.prompt_template = ChatPromptTemplate.from_messages([
-                    ("system", prompt),
+                    ("system", get_prompt("rag_prompt_config")),
                     ("system", "Summary of earlier conversation:\n{conversation_summary}"),
                     MessagesPlaceholder("recent_messages"),
                     ("human", """
@@ -186,7 +193,8 @@ class RAGAssistant:
             context_str = "\n\n".join(rag_context['documents'])
 
         summary = self.summarize_old_messages();
-        
+
+        # unsummarized messages excluding the last one since we use it as the value of the "question" variable
         recent_messages = self.conversation_history[:-1][-get_config_value("max_recent_messages"):]#get the [max_recent_messages] recent messages
        
         print(f"summary: {summary}")
@@ -211,6 +219,13 @@ class RAGAssistant:
         return response
     
     def summarize_old_messages(self) -> str:
+        """
+        Summarize the old messages
+    
+        Returns:
+            The summary
+        """
+
         max_recent_msg = get_config_value("max_recent_messages")
 
         if (len(self.conversation_history) <= max_recent_msg):
@@ -235,7 +250,7 @@ class RAGAssistant:
             {old_msg}
             """
         
-        llm = get_llm()
+        llm = get_llm(os.getenv("GROQ_MODEL"))
         response = llm.invoke(summary_prompt)
         summary = response.content 
 
@@ -247,6 +262,40 @@ class RAGAssistant:
 
         return summary
 
+    def rewrite_query(self, query: str) -> str:
+        """
+        Rewrite the query into standalone, context-complete search queries to improve retrieval in vector databases
+        This considers the previous conversation in the update
+    
+        Args:
+            query: The raw input question or prompt from the user.
+
+        Returns:
+            The updated query
+        """
+            
+        rewrite_query_prompt = f"""
+        
+            {get_prompt("rewrite_query_prompt_config")}
+
+            Conversation history: 
+            {self.conversation_history}
+
+            Existing summary: 
+            {self.conversation_summary}
+
+            Query:
+            {query}
+            
+            """
+
+        print(f"rewrite query prompt {rewrite_query_prompt}")
+        
+        llm = get_llm(os.getenv("GROQ_MODEL"))
+        response = llm.invoke(rewrite_query_prompt)
+    
+        return response.content 
+
 
 
 def main():
@@ -256,9 +305,9 @@ def main():
         print("Initializing RAG Assistant...")
         assistant = RAGAssistant()
 
+        #UNCOMMENT THIS AFTER TESTING !!!!!!!
         # Load sample documents
-        print("\nLoading documents...")
-        sample_docs = load_documents()
+        sample_docs = load_documents() 
         print(f"Loaded {len(sample_docs)} sample documents")
         
         assistant.add_documents(sample_docs)
@@ -271,6 +320,12 @@ def main():
             if question.lower() == "quit":
                 done = True
             else:
+                if len(assistant.conversation_history) > 0:
+                    question = assistant.rewrite_query(question)
+                    print(f"rewrite query, new query is: {question}")  
+                else:
+                    print('do not rewrite query, no history yet')    
+
                 assistant.conversation_history.append(HumanMessage(content=question))
                 result = assistant.invoke(question)
                 assistant.conversation_history.append(AIMessage(content=result))
@@ -283,4 +338,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-    #load_documents()  # Call the load_documents function to test it

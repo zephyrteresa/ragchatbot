@@ -67,3 +67,11 @@ def get_config_value(key:str):
     default_config = load_yaml(Path("config") / "config.yaml")
 
     return default_config.get(key)
+
+def get_prompt(prompt_key: str):
+    config_dir = Path("config").resolve()
+    prompt_config_file = os.path.join(config_dir, "prompt_config.yaml")
+    prompt_config = load_yaml(prompt_config_file) 
+    prompt = build_prompt(prompt_config, prompt_key)
+
+    return prompt;

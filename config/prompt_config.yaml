@@ -12,4 +12,16 @@ rag_prompt_config:
     - Direct and confident   
   goal: 
     Help user understand the basic information about domestic animals such as cats and dogs, their behavior, anatomy, breeds and basic care tips
-  reasoning_strategy: "CoT"
+
+rewrite_query_prompt_config:
+  description: "Prompt to use for rewriting user's query"
+  instruction: Rewrite the user's query considering the given conversation history and summary of the old messages.
+  output_constraints:
+    - ONLY resolve ambiguous pronouns (e.g., 'it', 'they', 'that', 'them') or incomplete follow-ups using conversation history.
+    - DO NOT add conversational filler (e.g., 'Could you give me...', 'Based on our previous discussion...').
+    - DO NOT expand general terms into lists of specific examples unless the user explicitly requested it.
+    - Keep the query concise, direct, and keyword-rich for a vector search engine.
+    - If the latest user question is already standalone and clear, return it EXACTLY as written.
+    - Output ONLY the rewritten query text and nothing else. 
+ 
+  

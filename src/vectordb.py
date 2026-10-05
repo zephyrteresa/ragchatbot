@@ -23,7 +23,7 @@ class VectorDB:
             embedding_model: HuggingFace model name for embeddings
         """
         self.collection_name = collection_name or os.getenv(
-            "CHROMA_COLLECTION_NAME", "rag_documents"
+            "CHROMA_COLLECTION_NAME", "rag_collection"
         )
         self.embedding_model_name = embedding_model or os.getenv(
             "EMBEDDING_MODEL", "sentence-transformers/all-MiniLM-L6-v2"
@@ -34,7 +34,7 @@ class VectorDB:
         self.embedding_model = HuggingFaceEmbeddings(model_name=self.embedding_model_name)
 
         self.vector_store = Chroma(
-            collection_name="rag_collection",
+            collection_name=self.collection_name,
             embedding_function=self.embedding_model,
             persist_directory="./chroma_db",
             client_settings=chromadb.config.Settings(allow_reset=True)
@@ -79,7 +79,6 @@ class VectorDB:
                 chunk.page_content.encode("utf-8")
             ).hexdigest()
              
-            #chunk.metadata["chunk_id"] = id
             chunk.metadata["chunk_id"] = f"{chunk.metadata['source']}_page_{chunk.metadata['page']}_chunk_{content_hash}"
            
         return chunked_docs    
@@ -150,14 +149,11 @@ class VectorDB:
         for doc, score in results:
             print(f"doc id {doc.id}, threshold: {score}")
             if score <= n_threshold:
-                print("score is less than or equal threshold, included")
                 documents.append(doc.page_content)
                 metadatas.append(doc.metadata)
                 distances.append(score)
                 ids.append(doc.id)
-            else:
-                print("score is greater than threshold, excluded")
-      
+         
         return {
             "documents": documents,
             "metadatas": metadatas,
@@ -166,16 +162,13 @@ class VectorDB:
         }
 
     def reset_vector_store(self, collection_name: Optional[str] = None):
-        print("inside reset vector store")
        
         try:
             count = 0
             if collection_name is not None:
-                print("inside if")
                 self.vector_store._client.delete_collection(collection_name)
                 count = self.vector_store._client.get_collection(collection_name).count()
             else:
-                print("inside else")
                 self.vector_store._client.reset()
                 count = self.vector_store._collection.count()
             
