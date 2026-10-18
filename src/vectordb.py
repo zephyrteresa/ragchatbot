@@ -42,14 +42,14 @@ class VectorDB:
 
         print(f"Vector database initialized with collection name: {self.collection_name}")
 
-    def chunk_text(self, docs: List[Dict[str, Any]], chunk_size: int = 500) -> List[Document]:
+    def chunk_text(self, docs: List[Dict[str, Any]], chunk_size: int = None, chunk_overlap: int = None) -> List[Document]:
         """
-        Split text documents into chunks using RecursiveCharacterTextSplitter.
+        Split documents into chunks using RecursiveCharacterTextSplitter.
 
         Args:
             docs: list of dicts
             chunk_size: Approximate number of characters per chunk
-
+            chunk_overlap: The maximum number of characters shared between consecutive chunks to preserve context across splits
         Returns:
             List of Documents
         """
@@ -66,19 +66,27 @@ class VectorDB:
             for d in docs   
         ]
 
+        if chunk_size is None:
+            chunk_size = get_config_value("chunk_size")
+    
+        if chunk_overlap is None:
+            chunk_overlap = get_config_value("chunk_overlap")  
+
         splitter = RecursiveCharacterTextSplitter(
                     chunk_size=chunk_size,
-                    chunk_overlap=50
+                    chunk_overlap=chunk_overlap
                 )
         
         # Split Document objects, handle all documents in one call
         chunked_docs = splitter.split_documents(doc_objects)
 
         for chunk in chunked_docs:
+            # we hash the content to use it as part of the chunk_id as the unique identifier for each chunk
             content_hash = hashlib.md5(
                 chunk.page_content.encode("utf-8")
             ).hexdigest()
-             
+
+            # this will be used later as the unique id for each document in the vector store
             chunk.metadata["chunk_id"] = f"{chunk.metadata['source']}_page_{chunk.metadata['page']}_chunk_{content_hash}"
            
         return chunked_docs    
@@ -97,7 +105,6 @@ class VectorDB:
         
         # get the chunked ids here and use them as unique ids
         ids = [chunk.metadata["chunk_id"] for chunk in chunked_docs]
-        print(f"ids: \n{json.dumps(ids, indent=2)}" )
 
         # Get the actual text content
         texts = [chunk.page_content for chunk in chunked_docs]
@@ -147,7 +154,6 @@ class VectorDB:
         ids = []
         
         for doc, score in results:
-            print(f"doc id {doc.id}, threshold: {score}")
             if score <= n_threshold:
                 documents.append(doc.page_content)
                 metadatas.append(doc.metadata)

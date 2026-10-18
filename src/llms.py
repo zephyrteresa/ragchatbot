@@ -11,6 +11,9 @@ def get_llm(model_name: str = None):
     """
     Initialize the LLM by checking for available API keys.
     Tries OpenAI, Groq, and Google Gemini in that order.
+
+    Args:
+        model_name: The optional model name, this will be used if given, else we use what is defined in the .env
     """
     # Check for OpenAI API key
     if os.getenv("OPENAI_API_KEY"):
@@ -24,7 +27,7 @@ def get_llm(model_name: str = None):
 
         model_name = model_name or os.getenv("GROQ_MODEL", "llama-3.1-8b-instant")
 
-        print(f"Using Groq model: {model_name}")
+        # print(f"Using Groq model: {model_name}")
         return ChatGroq(
             api_key=os.getenv("GROQ_API_KEY"), max_tokens=800, model=model_name, temperature=0.0
         )

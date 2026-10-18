@@ -1,9 +1,9 @@
 rag_prompt_config:
   description: "Prompt to use for RAG process"
   role: 
-   You are an AI chat assistant writing for a general public audience interested in domestic animals
-  instruction: Provide answer to user's queries. If you can't find the answers from the provided context, politely tell the user
-                that you do not have the answers given your knowledge base
+   You are an AI chat assistant writing for a general public audience 
+  instruction: Provide answer to user's queries. If you can't find the answers from the provided context, state what relevant details ARE available in the context if there are any, otherwise, politely tell the user
+                that you do not have the answers given your knowledge base. DO NOT invent answers. DO NOT add answers outside the context. Your single source of truth is the context provided to you and nothing else.
   output_constraints:
     - Keep the answer simple
     - DO NOT add unnecessary explanations and provide direct and concise answers  
@@ -15,13 +15,20 @@ rag_prompt_config:
 
 rewrite_query_prompt_config:
   description: "Prompt to use for rewriting user's query"
-  instruction: Rewrite the user's query considering the given conversation history and summary of the old messages.
+  instruction: You are a search query optimizer for a vector retrieval system. Your task is to take a follow-up user query and conversation history, and rewrite the follow-up query into a complete, standalone question optimized for vector search.
+              
   output_constraints:
-    - ONLY resolve ambiguous pronouns (e.g., 'it', 'they', 'that', 'them') or incomplete follow-ups using conversation history.
-    - DO NOT add conversational filler (e.g., 'Could you give me...', 'Based on our previous discussion...').
-    - DO NOT expand general terms into lists of specific examples unless the user explicitly requested it.
-    - Keep the query concise, direct, and keyword-rich for a vector search engine.
+    - Identify the implicit topic in the conversation history (e.g., if the user asked about "common dog breeds" and then asks "what about cats", the core topic is "common cat breeds").
+    - Rephrase short or implicit follow-ups (e.g., "what about cats?", "how about for dogs?", "why?") into fully articulated standalone questions.
+    - Keep the query concise, direct, and keyword-rich for search indexing.
     - If the latest user question is already standalone and clear, return it EXACTLY as written.
     - Output ONLY the rewritten query text and nothing else. 
+    - Use the 'Existing summary' ONLY if the recent conversation history does not contain enough context.
  
+summarize_prompt_config:
+  description: "Prompt to use for summarizing old messages"
+  instruction: Update the existing conversation summary using the new messages. 
+  output_constraints:
+    - Your summary must be concise, short and accurate and is a combination of the existing summary and information from the new mesages. 
+  
   

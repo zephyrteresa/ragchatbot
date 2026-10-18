@@ -1,3 +1,5 @@
 n_results: 5
 n_threshold: 1
-max_recent_messages: 1
+max_recent_messages: 3
+chunk_size: 500
+chunk_overlap: 100

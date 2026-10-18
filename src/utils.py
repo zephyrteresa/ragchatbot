@@ -4,11 +4,6 @@ from pathlib import Path
 import yaml
 import logging
 
-LOG_DIR = Path("logs")
-LOG_DIR.mkdir(exist_ok=True)
-LOG_FILE = LOG_DIR / "app.log"
-
-
 def load_yaml(file_path: str)-> Dict[str, Any]:
    
     if not Path(file_path).exists():
@@ -33,11 +28,15 @@ def build_prompt(prompt_config: Dict[str, Any], prompt_type: str):
     if instruction := prompt.get("instruction"):
         prompt_str = prompt_str + "\n\n" + instruction
 
-    for constraint in prompt.get("output_constraints"):
-        prompt_str = prompt_str + "\n\n" + constraint  
+    output_constraints = prompt.get("output_constraints")
+    if output_constraints:
+        for constraint in output_constraints:
+            prompt_str = prompt_str + "\n\n" + constraint  
 
-    for tone in prompt.get("style_or_tone"):
-        prompt_str = prompt_str + "\n\n" + tone      
+    tone = prompt.get("style_or_tone")
+    if tone:
+        for tone in tone:
+            prompt_str = prompt_str + "\n\n" + tone      
 
     if goal := prompt.get("goal"):
         prompt_str = prompt_str + "\n\n Your goal is the ff: " + goal    
@@ -52,7 +51,10 @@ def get_logger(log_name: str = __name__):
 
         if not logger.handlers:
             # Create file handler
-            file_handler = logging.FileHandler(LOG_FILE, mode="a", encoding="utf-8")
+            log_dir = Path("logs")
+            log_dir.mkdir(exist_ok=True)
+            log_file = log_dir / "app.log"
+            file_handler = logging.FileHandler(log_file, mode="a", encoding="utf-8")
 
             formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s")
             file_handler.setFormatter(formatter)

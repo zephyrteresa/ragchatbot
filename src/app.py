@@ -7,11 +7,12 @@ from vectordb import VectorDB
 from pathlib import Path
 import pymupdf
 import base64
-from langchain_core.messages import HumanMessage, AIMessage
+from langchain_core.messages import HumanMessage, AIMessage, get_buffer_string
 from utils import get_logger, get_config_value, get_prompt
 import time
 from llms import get_llm
 from langchain_core.load import dumps
+import traceback
 
 
 # Load environment variables
@@ -38,10 +39,11 @@ def load_documents() -> List[Dict[str, Any]]:
         all_pdfs = list(data_dir.glob("*.pdf"))
        
         if not all_pdfs:
-            print("No pdf found")
+            raise FileNotFoundError(
+                f"No PDF files found in directory: {data_dir}"
+            )
 
         for file_path in all_pdfs:
-            print(f"file path {file_path}")
             pdf = pymupdf.open(file_path)
            
             seen_xrefs = set()
@@ -68,7 +70,6 @@ def load_documents() -> List[Dict[str, Any]]:
                         # Skip processing this image because it was already summarized on an earlier page
                         if xref in seen_xrefs or width < 150 or height < 150:
                             # Ignore tiny graphics, icons, or decorative elements
-                            print("width is less than 150 or height is < 150 or image is already added, exclude")
                             continue
                         
                         print(f"Loading image of page {page_num}...")
@@ -101,10 +102,9 @@ def load_documents() -> List[Dict[str, Any]]:
                         time.sleep(0.5)           
                     except Exception as e:
                         print(f"API Error or Timeout on page image: {e}")
-                        return None  # Return fallback instead of locking up the worker
-                         
-                    
-
+                        # continue processing the next image
+                        continue  
+        
     else:
         print(f"Data directory does not exist: {data_dir}")            
 
@@ -132,23 +132,40 @@ class RAGAssistant:
 
         # set the prompt template, we include here the summary of old conversations as well as the recent messages
         # to give the model the complete context
-        self.prompt_template = ChatPromptTemplate.from_messages([
-                    ("system", get_prompt("rag_prompt_config")),
-                    ("system", "Summary of earlier conversation:\n{conversation_summary}"),
-                    MessagesPlaceholder("recent_messages"),
-                    ("human", """
+        # self.prompt_template = ChatPromptTemplate.from_messages([
+        #             ("system", get_prompt("rag_prompt_config")),
+        #             ("system", "Summary of earlier conversation:\n{conversation_summary}"),
+        #             MessagesPlaceholder("recent_messages"),
+        #             ("human", """
 
-                Answer the user's query based on the provided context:
+        #         Answer the user's query based on the provided context:
 
-                Context:
-                    {context}
+        #         <context>
+        #             {context}
+        #         </context>
+                
+        #         Question: 
+        #             {question}
 
-                Question: 
-                    {question}
-
-                """)
-                ])
+        #         """)
+        #         ])
         
+        self.prompt_template = ChatPromptTemplate.from_messages([
+                            ("system", get_prompt("rag_prompt_config")),
+                            ("human", """
+        
+                        Answer the user's query based on the provided context:
+        
+                        <context>
+                            {context}
+                        </context>
+                        
+                        Question: 
+                            {question}
+        
+                        """)
+                        ])
+                
         # Create the chain
         if self.prompt_template:
             self.chain = self.prompt_template | self.llm | StrOutputParser()
@@ -197,8 +214,8 @@ class RAGAssistant:
         # unsummarized messages excluding the last one since we use it as the value of the "question" variable
         recent_messages = self.conversation_history[:-1][-get_config_value("max_recent_messages"):]#get the [max_recent_messages] recent messages
        
-        print(f"summary: {summary}")
-        print(f"recent messages: {recent_messages}")
+        self.logger.info(f"summary: {summary}")
+        self.logger.info(f"recent messages: {recent_messages}")
          
         prompt_inputs = {
             "conversation_summary": summary,
@@ -229,7 +246,7 @@ class RAGAssistant:
         max_recent_msg = get_config_value("max_recent_messages")
 
         if (len(self.conversation_history) <= max_recent_msg):
-            print(f"history length is <= {max_recent_msg}, no summary")
+            self.logger.info(f"history length is <= {max_recent_msg}, no summary")
             return "Not available"
         
         old_messages = self.conversation_history[:-max_recent_msg]
@@ -240,15 +257,16 @@ class RAGAssistant:
 
         summary_prompt = f"""
         
-            Update the existing conversation summary using the new messages. Your summary must be concise, short and accurate and is a combination
-            of the existing summary and information from the new mesages. 
+            {get_prompt("summarize_prompt_config")}
 
             Existing summary: 
-            {self.conversation_summary}
+            {self.conversation_summary or "Not available"}
 
             Messages: 
             {old_msg}
             """
+
+        self.logger.info(f"summary prompt: {summary_prompt}")
         
         llm = get_llm(os.getenv("GROQ_MODEL"))
         response = llm.invoke(summary_prompt)
@@ -278,18 +296,18 @@ class RAGAssistant:
         
             {get_prompt("rewrite_query_prompt_config")}
 
-            Conversation history: 
-            {self.conversation_history}
-
             Existing summary: 
-            {self.conversation_summary}
+            {self.conversation_summary or "Not available"} 
+
+            Recent conversation history: 
+            {get_buffer_string(self.conversation_history) or "Not available"}
 
             Query:
             {query}
             
             """
 
-        print(f"rewrite query prompt {rewrite_query_prompt}")
+        self.logger.info(f"rewrite query prompt: {rewrite_query_prompt}")
         
         llm = get_llm(os.getenv("GROQ_MODEL"))
         response = llm.invoke(rewrite_query_prompt)
@@ -307,24 +325,25 @@ def main():
 
         #UNCOMMENT THIS AFTER TESTING !!!!!!!
         # Load sample documents
-        sample_docs = load_documents() 
-        print(f"Loaded {len(sample_docs)} sample documents")
+        # sample_docs = load_documents() 
+      
+        # print(f"Loaded {len(sample_docs)} sample documents")
         
-        assistant.add_documents(sample_docs)
+        # assistant.add_documents(sample_docs)
 
         done = False
         assistant.conversation_history = []
 
         while not done:
-            question = input("Enter a question or 'quit' to exit: ")
+            question = input("Enter a question or type 'quit' to exit: ")
             if question.lower() == "quit":
                 done = True
             else:
                 if len(assistant.conversation_history) > 0:
                     question = assistant.rewrite_query(question)
-                    print(f"rewrite query, new query is: {question}")  
+                    assistant.logger.info(f"rewrite query, new query is: {question}")  
                 else:
-                    print('do not rewrite query, no history yet')    
+                    assistant.logger.info('do not rewrite query, no history yet')    
 
                 assistant.conversation_history.append(HumanMessage(content=question))
                 result = assistant.invoke(question)
@@ -334,6 +353,7 @@ def main():
     except Exception as e:
         print(f"Error running RAG assistant: {e}")
         print("Make sure you have set up your .env file with at least one API key:")
+        traceback.print_exc()
        
 
 if __name__ == "__main__":
