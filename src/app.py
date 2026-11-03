@@ -1,7 +1,7 @@
 import os
 from typing import List, Any, Dict
 from dotenv import load_dotenv
-from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from vectordb import VectorDB
 from pathlib import Path
@@ -188,38 +188,32 @@ class RAGAssistant:
         """
         self.vector_db.add_documents(documents)
   
-    def invoke(self, input: str, n_results: int = None, n_threshold: int = None) -> str:
+    def invoke(self, input: str, rewritten_input: str = None, n_results: int = None, n_threshold: int = None) -> str:
         """
         Query the RAG assistant.
 
         Args:
-            input: User's input
+            input: Original user's input
+            rewritten_input: Rewritten input, this is used to query the vector store
             n_results: Number of relevant chunks to retrieve
             n_threshold: The distance threshold
 
         Returns:
             LLM answer
         """
-        
+
+        # Use rewritten input for vector database retrieval
+        search_query = rewritten_input or input
+
         # get context by querying the vector store
-        rag_context = self.vector_db.search(input, n_results, n_threshold)
+        rag_context = self.vector_db.search(search_query, n_results, n_threshold)
 
         if not rag_context['documents']:
             context_str = "No relevant context found"
         else:            
             context_str = "\n\n".join(rag_context['documents'])
-
-        summary = self.summarize_old_messages();
-
-        # unsummarized messages excluding the last one since we use it as the value of the "question" variable
-        recent_messages = self.conversation_history[:-1][-get_config_value("max_recent_messages"):]#get the [max_recent_messages] recent messages
-       
-        self.logger.info(f"summary: {summary}")
-        self.logger.info(f"recent messages: {recent_messages}")
-         
-        prompt_inputs = {
-            "conversation_summary": summary,
-            "recent_messages":recent_messages, 
+    
+        prompt_inputs = {         
             "context":context_str,
             "question":input
         }
@@ -324,28 +318,33 @@ def main():
         assistant = RAGAssistant()
 
         # Load sample documents
-        sample_docs = load_documents() 
+        # sample_docs = load_documents() 
       
-        print(f"Loaded {len(sample_docs)} sample documents")
+        # print(f"Loaded {len(sample_docs)} sample documents")
         
-        assistant.add_documents(sample_docs)
+        # assistant.add_documents(sample_docs)
 
         done = False
         assistant.conversation_history = []
 
         while not done:
+            rewritten_question = ""
             question = input("Enter a question or type 'quit' to exit: ")
             if question.lower() == "quit":
                 done = True
             else:
                 if len(assistant.conversation_history) > 0:
-                    question = assistant.rewrite_query(question)
-                    assistant.logger.info(f"rewrite query, new query is: {question}")  
+
+                    # summarize old messages here 
+                    assistant.summarize_old_messages();
+
+                    rewritten_question = assistant.rewrite_query(question)
+                    assistant.logger.info(f"rewrite query, new query is: {rewritten_question}")  
                 else:
                     assistant.logger.info('do not rewrite query, no history yet')    
 
                 assistant.conversation_history.append(HumanMessage(content=question))
-                result = assistant.invoke(question)
+                result = assistant.invoke(question, rewritten_question)
                 assistant.conversation_history.append(AIMessage(content=result))
                 print(result)
 
