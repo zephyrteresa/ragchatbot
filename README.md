@@ -30,7 +30,7 @@ A Python-based Retrieval-Augmented Generation (RAG) tool for searching and askin
 
 ## Setup & Installation
 
-1. **Clone the repository and set up a virtual environment:**
+1. **Clone the repository and set up a virtual environment, note that Python 3.13 is required as several dependencies rely on this specific version:**
    ```bash
    python -m venv .venv
    source .venv/bin/activate
