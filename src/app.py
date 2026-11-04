@@ -33,7 +33,7 @@ def load_documents() -> List[Dict[str, Any]]:
     print(f"Loading documents from: {data_dir}")
 
     if data_dir.exists(): 
-        llm = get_llm(os.getenv("GROQ_VISION_MODEL"))
+        llm = get_llm(os.getenv("VISION_MODEL"))
 
         #get all pdf docs
         all_pdfs = list(data_dir.glob("*.pdf"))
@@ -129,39 +129,22 @@ class RAGAssistant:
 
         # Initialize vector database
         self.vector_db = VectorDB()
-
-        # set the prompt template, we include here the summary of old conversations as well as the recent messages
-        # to give the model the complete context
-        # self.prompt_template = ChatPromptTemplate.from_messages([
-        #             ("system", get_prompt("rag_prompt_config")),
-        #             ("system", "Summary of earlier conversation:\n{conversation_summary}"),
-        #             MessagesPlaceholder("recent_messages"),
-        #             ("human", """
-
-        #         Answer the user's query based on the provided context:
-
-        #         <context>
-        #             {context}
-        #         </context>
-                
-        #         Question: 
-        #             {question}
-
-        #         """)
-        #         ])
-        
+               
         self.prompt_template = ChatPromptTemplate.from_messages([
                             ("system", get_prompt("rag_prompt_config")),
                             ("human", """
         
-                        Answer the user's query based on the provided context:
+                        Answer the user's original question based on the provided context:
         
                         <context>
                             {context}
                         </context>
                         
-                        Question: 
-                            {question}
+                        Original Question: 
+                            {original_question}
+
+                        Standalone Question: 
+                            {rewritten_question}    
         
                         """)
                         ])
@@ -214,8 +197,9 @@ class RAGAssistant:
             context_str = "\n\n".join(rag_context['documents'])
     
         prompt_inputs = {         
-            "context":context_str,
-            "question":input
+            "context":context_str,            
+            "original_question":input,
+            "rewritten_question":rewritten_input,
         }
 
         # log the prompt sent to LLM
@@ -334,7 +318,6 @@ def main():
                 done = True
             else:
                 if len(assistant.conversation_history) > 0:
-
                     # summarize old messages here 
                     assistant.summarize_old_messages();
 
@@ -346,6 +329,7 @@ def main():
                 assistant.conversation_history.append(HumanMessage(content=question))
                 result = assistant.invoke(question, rewritten_question)
                 assistant.conversation_history.append(AIMessage(content=result))
+                
                 print(result)
 
     except Exception as e:

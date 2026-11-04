@@ -49,7 +49,7 @@ A Python-based Retrieval-Augmented Generation (RAG) tool for searching and askin
    *Required settings inside `.env`:*
    ```env
    GROQ_API_KEY=your_groq_api_key
-   GROQ_VISION_MODEL=qwen/qwen3.8-27b
+   VISION_MODEL=qwen/qwen3.8-27b
    GROQ_MODEL=openai/gpt-oss-20b
    HF_TOKEN=your_huggingface_token
    ```
