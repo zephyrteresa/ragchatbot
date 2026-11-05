@@ -7,7 +7,6 @@ from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_chroma import Chroma
 from utils import get_config_value
 import hashlib
-import json
 
 class VectorDB:
     """

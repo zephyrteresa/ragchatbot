@@ -302,11 +302,11 @@ def main():
         assistant = RAGAssistant()
 
         # Load sample documents
-        # sample_docs = load_documents() 
+        sample_docs = load_documents() 
       
-        # print(f"Loaded {len(sample_docs)} sample documents")
+        print(f"Loaded {len(sample_docs)} sample documents")
         
-        # assistant.add_documents(sample_docs)
+        assistant.add_documents(sample_docs)
 
         done = False
         assistant.conversation_history = []
